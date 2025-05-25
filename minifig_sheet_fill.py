@@ -8,12 +8,8 @@
 # 7. Possibly turn information into CSV (moderate difficulty)
 # 8. Populate Goolge Sheets sheet with all the scraped information for a beautiful result (difficult)
 
-
-# Do i make a function that grabs the price or do it while looping through collections??
-# No matter what id have to open a new page for each price retrieval
-
-# Left off on data collection of a single collection item
-# Need to figure out how to collect info for every item per page
+# Left off on collecting all data from only the first page
+# Next up is getting data from every page containing minifigs 
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -31,25 +27,62 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import csv
 
+
+# function to scrape price and release year from minifig specific pages
+# NEED to update it to pick the price based on condition
+# currently it defaults to the avg used current price
+def scrape_release_and_price(driver, identifier):
+    driver.get(f"https://www.bricklink.com/v2/catalog/catalogitem.page?M={identifier}#T=P")
+
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'pcipgSummaryTable'))
+        )
+    except Exception as e:
+        print(f"Timed out waiting for tables on {identifier}: {e}")
+        return "N/A", "N/A"
+
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+
+    # scrape price
+    tables = soup.find_all('table', class_='pcipgSummaryTable')
+    if len(tables) < 4:
+        print(f"Expected at least 4 tables for identifier {identifier}, but found {len(tables)}")
+        price = "N/A"
+    else:
+        rows = tables[3].find('tbody').find_all('tr')
+        if len(rows) > 3:
+            price_cell = rows[3].find_all('td')[1]
+            price_text = price_cell.text.strip()
+            try:
+                price = f"{float(price_text.split('$')[1]):.2f}"
+            except (IndexError, ValueError):
+                price = "N/A"
+        else:
+            price = "N/A"
+
+    # scrape release year
+    year_elem = soup.find(id='yearReleasedSec')
+    release_year = year_elem.text.strip() if year_elem else "N/A"
+
+    return price, release_year
+
+
 load_dotenv()
 user, passwd = os.getenv("UNAME"), os.getenv("PASSWD")
 
 options = webdriver.ChromeOptions()
-options.add_argument('--headless')
+#options.add_argument('--headless')
 driver = webdriver.Chrome(options=options)
 
 url = "https://store.bricklink.com/v2/login.page?menu=Home&logInTo=https%3A%2F%2Fstore.bricklink.com%2Fv2%2Fglobalcart.page"
 driver.get(url)
 
-try:
-    cookie_btn = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.XPATH, "//button[text()='Just necessary']"))
-    )
-    driver.execute_script("arguments[0].click();", cookie_btn)
-    print("Cookie banner dismissed via JS.")
-except Exception as e:
-    print("Cookie notice not dismissed:", e)
 
+cookie_btn = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.XPATH, "//button[text()='Just necessary']"))
+)
+driver.execute_script("arguments[0].click();", cookie_btn)
 
 username_field = driver.find_element(By.ID, 'frmUsername')
 password_field = driver.find_element(By.ID, 'frmPassword')
@@ -67,43 +100,60 @@ soup = BeautifulSoup(driver.page_source, 'html.parser')
 
 time.sleep(1)
 
-list_item = soup.find(id='listItemView-1')
+minifig_info = []
 
-name = list_item.find('div', class_='text--bold l-cursor-pointer')
-name = name.text.strip()
+list_items = soup.find_all(id=re.compile('^listItemView-\d+$'))
+for item in list_items:
+    item_id = item.get_attribute_list('id')
+    list_item = soup.find(id=str(item_id[0]))
 
-ip = list_item.find('div', class_='personal-inventory__item-category')
-ip = ip.text.strip().split(':')[0].strip()
+    # scrape minifig name
+    name = list_item.find('div', class_='text--bold l-cursor-pointer')
+    name = name.text.strip()
 
-category = list_item.find('div', class_='personal-inventory__item-category')
-category = category.text.strip().split(':')[1].strip()
-
-identifier = list_item.find('div', class_='personal-inventory__list-item-list-cell--item-no text--break-word l-cursor-pointer')
-identifier = identifier.text.strip()
-
-condition = list_item.find('div', class_='personal-inventory__list-item-list-cell--cond')
-condition = condition.text.strip()
-
-qty_container = list_item.find('div', class_='personal-inventory__list-item-list-cell--qty')
-if qty_container:
-    input_tag = qty_container.find('input', class_='text-input text--center personal-inventory__list-qty')
-    if input_tag and input_tag.has_attr('value'):
-        quantity = input_tag['value']
+    # scrape intellectual property minifig (e.g., Ninjago, Indiana Jones, etc)
+    # scrape subcategory of IP (e.g., NINJAGO: Rise of the Snakes, Star Wars: Star Wars Episode 1, Super Heroes: Batman II)
+    ip_text = list_item.find('div', class_='personal-inventory__item-category')
+    ip_text = ip_text.text.strip()
+    parts   = [p.strip() for p in ip_text.split(':', 1)]
+    if len(parts) == 1:
+        ip, category = parts[0], ""
     else:
-        print("Input tag not found or missing value attribute.")
-else:
-    print("Quantity container not found.")
+        ip, category = parts[0], parts[1]
 
-notes_div = list_item.find('div', class_='personal-inventory__cell--note l-margin-top--sm personal-inventory__note-field')
-if notes_div:
-    direct_text = notes_div.find(string=True, recursive=False)
-    notes = direct_text.strip() if direct_text else "Add Notes"
-else:
-    notes = "No notes found"
+    # scrape BrickLink item number (e.g., njo0047, sw0002, sh0041)
+    identifier = list_item.find('div', class_='personal-inventory__list-item-list-cell--item-no text--break-word l-cursor-pointer')
+    identifier = identifier.text.strip()
 
-print(f"{name}, {ip}, {category}, {identifier}, {condition}, {quantity}, {notes}")
+    # scrape price and release year from a different page using a function
+    price, release_year = scrape_release_and_price(driver, identifier)
+
+    # scrape chosen condition of minifig (used or new)
+    condition = list_item.find('div', class_='personal-inventory__list-item-list-cell--cond')
+    condition = condition.text.strip()
+
+    # scrape quantity of minifigs in collection
+    qty_container = list_item.find('div', class_='personal-inventory__list-item-list-cell--qty')
+    if qty_container:
+        input_tag = qty_container.find('input', class_='text-input text--center personal-inventory__list-qty')
+        if input_tag and input_tag.has_attr('value'):
+            quantity = input_tag['value']
+        else:
+            print("Input tag not found or missing value attribute.")
+    else:
+        print("Quantity container not found.")
+
+    # scrape and transfer over any added notes
+    notes_div = list_item.find('div', class_='personal-inventory__cell--note l-margin-top--sm personal-inventory__note-field')
+    if notes_div:
+        direct_text = notes_div.find(string=True, recursive=False)
+        notes = direct_text.strip() if direct_text else "Add Notes"
+    else:
+        notes = "No notes found"
+
+    minifig_info.append([name, identifier, ip, category, release_year, condition, price, quantity, notes])
+
 
 time.sleep(10)
-
            
 driver.quit()
