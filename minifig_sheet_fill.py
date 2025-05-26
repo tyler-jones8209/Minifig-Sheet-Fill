@@ -8,6 +8,14 @@
 # 7. Possibly turn information into CSV (moderate difficulty) (DONE: not gonna use it for the google sheet but still cool to have)
 # 8. Populate Goolge Sheets sheet with all the scraped information for a beautiful result (difficult) (DONE: actually was easy since I had stuff set up already)
 
+# Sister scripts I could make:
+# 1. Another Google Sheets filler that populates a sheet with name, item number, and every price listed in the Price Guide. 
+#       This would include min, avg, and max prices for new and used during the last 6 months and new and used during the current period (12 total prices)
+#       I'm pretty sure I can pull this info in any other sheet I make just using '=SOME_FUNCTION(item_number)' which could be useful
+# 2. A script similar to this one, except it gets info from a specified list in 'My Wanted Lists' 
+#       I would include name, item number, theme, subtheme, price, checkbox for if acquired
+#       Not sure what utility this would have other than BrickLink's wishlists are UGLY 
+
 # html parsing and browser surfing
 from selenium import webdriver
 from selenium.webdriver.common.by import By
