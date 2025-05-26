@@ -1,13 +1,3 @@
-# Use bs4 and selenium to:
-# 1. Log into my BrickLink account (super easy) (DONE: not as easy as I thought)
-# 2. Navigate to 'My Collection' page (easy) (DONE: super easy)
-# 3. Create a list of all item id's (e.g., njo0047) on all the pages of my collection (difficult) (DONE: more or less)
-# 4. Using id's, save name, theme, subtheme (e.g., Rise of the Snakes), id, release date, condition, price*, quantity, and notes (moderate difficulty) (DONE)
-# 5. Scrape average used current price from each minifig page using previously written script (easy) (DONE: need to update it to get price based on condition)
-# 6. Save all information into a list (easy) (DONE)
-# 7. Possibly turn information into CSV (moderate difficulty) (DONE: not gonna use it for the google sheet but still cool to have)
-# 8. Populate Goolge Sheets sheet with all the scraped information for a beautiful result (difficult) (DONE: actually was easy since I had stuff set up already)
-
 # Sister scripts I could make:
 # 1. Another Google Sheets filler that populates a sheet with name, item number, and every price listed in the Price Guide. 
 #       This would include min, avg, and max prices for new and used during the last 6 months and new and used during the current period (12 total prices)
@@ -36,6 +26,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import csv
 
+# login to BrickLink; only needs to happen at the beginning because they have SSO (single sign-on) I think
 def login(driver, username, password):
     # load login page
     url = "https://store.bricklink.com/v2/login.page?menu=Home&logInTo=https%3A%2F%2Fstore.bricklink.com%2Fv2%2Fglobalcart.page"
@@ -57,6 +48,7 @@ def login(driver, username, password):
     # click login button
     driver.find_element(By.ID, 'blbtnLogin').click()
 
+# get the total number of pages listed in My Collection
 def get_total_pages(driver):
     # load the first My Collection page initially to retrieve number of total pages
     driver.get("https://www.bricklink.com/v3/myCollection/main.page?q=&itemType=M&page=1")
@@ -129,6 +121,7 @@ def scrape_release_and_price(driver, identifier, condition):
 
     return price, release_year
 
+# function that does the majority of data scraping (minus price and release year)
 def scrape_minifig_info(driver, page_numbers):
     # this houses all of the scraped info; each item is a list
     minifig_info = []
@@ -215,6 +208,8 @@ def scrape_minifig_info(driver, page_numbers):
 
     return minifig_info
 
+# optional function for creating CSV with minifig info; neat to have
+# might be the way to go if I write a script that gets ALL prices for ALL (or whatever subset) of minifigs
 def write_to_csv(minifig_info):
     with open('scraped_minifig_info.csv', 'w', newline='') as file:
         writer = csv.writer(file)
@@ -222,29 +217,43 @@ def write_to_csv(minifig_info):
         writer.writerows(minifig_info)
 
 # function to populate a chosen google sheet
-# need to really go through and relearn this code; I just copied it from a older project I made
-# also need to relearn how the credentials work so I can add it in the github documentation
 def fill_google_sheet(minifig_info):
+
+    # define permissions for reading/writing Google Sheets and accessing Google Drive
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name('c:/Users/tdjon/Projects/BrickLink/Minifig_Sheet_Fill/logical-veld-439501-v7-8119ef621faf.json', scope)
+
+    # load information stored in JSON file
+    creds = ServiceAccountCredentials.from_json_keyfile_name('c:/Users/tdjon/Projects/Python/Finances/logical-veld-439501-v7-8119ef621faf.json', scope)
+    
     client = gspread.authorize(creds)
 
+    # get first worksheet stored in 'Minifigure Collection'
     sheet = client.open("Minifigure Collection").sheet1
 
+    # clear all cells from A2:I1000 (skipping the header row A1:I1)
     range_to_clear = "A2:I1000"
-
     sheet.batch_clear([range_to_clear])
 
+    # row 1 is header row; start at row 2
     start_row = 2
 
+    # create cell range from start row and end row (number of items in minifig_info list)
+    # this basically turns the range of cells into a 1-dimensional list
     cell_range = f'A{start_row}:I{start_row + len(minifig_info) - 1}'
     cell_list = sheet.range(cell_range)
 
-    flat_data = [item for sublist in minifig_info for item in sublist]
+    # similar to cell_list, this flattens all of the 2-dimensional minifig data into a 1-dimensional list 
+    # that can be parsed through at the same time as cell_list
+    flat_data = []
+    for char_list in minifig_info:
+        for element in char_list:
+            flat_data.append(element)
 
+    # populate each cell with the corresponding minifig element
     for i, cell in enumerate(cell_list):
         cell.value = flat_data[i]
 
+    # push cells into sheet
     sheet.update_cells(cell_list)
 
 def main():
