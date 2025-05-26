@@ -2,18 +2,11 @@
 # 1. Log into my BrickLink account (super easy) (DONE: not as easy as I thought)
 # 2. Navigate to 'My Collection' page (easy) (DONE: super easy)
 # 3. Create a list of all item id's (e.g., njo0047) on all the pages of my collection (difficult) (DONE: more or less)
-# 4. Using id's, save name, ip, category (e.g., Rise of the Snakes), id, release date, condition, price*, quantity, and notes (moderate difficulty) (DONE)
+# 4. Using id's, save name, theme, subtheme (e.g., Rise of the Snakes), id, release date, condition, price*, quantity, and notes (moderate difficulty) (DONE)
 # 5. Scrape average used current price from each minifig page using previously written script (easy) (DONE: need to update it to get price based on condition)
 # 6. Save all information into a list (easy) (DONE)
-# 7. Possibly turn information into CSV (moderate difficulty)
-# 8. Populate Goolge Sheets sheet with all the scraped information for a beautiful result (difficult)
-
-# Left off on being able to collect data for every minifig on every page (theoreticaly)
-# Before i move on to turning into a CSV or trying to populate a sheet, I need to clean up the code cause it's MESSY AF
-# Maybe also go throuhg and see what I can turn into functions and setting failsafes for variables
-
-# On My Collection page, there is a box that lets you pick what page to go to
-# Luckily, that portion includes the total amount of pages "'jump to:'____ / <last_page_number>"
+# 7. Possibly turn information into CSV (moderate difficulty) (DONE: not gonna use it for the google sheet but still cool to have)
+# 8. Populate Goolge Sheets sheet with all the scraped information for a beautiful result (difficult) (DONE: actually was easy since I had stuff set up already)
 
 # html parsing and browser surfing
 from selenium import webdriver
@@ -157,15 +150,15 @@ def scrape_minifig_info(driver, page_numbers):
             if name is None:
                 name = ""
 
-            # scrape intellectual property minifig (e.g., Ninjago, Indiana Jones, etc)
-            # scrape subcategory of IP (e.g., NINJAGO: Rise of the Snakes, Star Wars: Star Wars Episode 1, Super Heroes: Batman II)
-            ip_text = list_item.find('div', class_='personal-inventory__item-category')
-            ip_text = ip_text.text.strip()
-            parts   = [p.strip() for p in ip_text.split(':', 1)]
+            # scrape theme of minifig (e.g., Ninjago, Indiana Jones, etc)
+            # scrape subtheme of theme (e.g., NINJAGO: Rise of the Snakes, Star Wars: Star Wars Episode 1, Super Heroes: Batman II)
+            theme_text = list_item.find('div', class_='personal-inventory__item-category')
+            theme_text = theme_text.text.strip()
+            parts   = [p.strip() for p in theme_text.split(':', 1)]
             if len(parts) == 1:
-                ip, category = parts[0], ""
+                theme, subtheme = parts[0], "N/A"
             else:
-                ip, category = parts[0], parts[1]
+                theme, subtheme = parts[0], parts[1]
 
             # scrape BrickLink item number (e.g., njo0047, sw0002, sh0041)
             identifier = list_item.find('div', class_='personal-inventory__list-item-list-cell--item-no text--break-word l-cursor-pointer')
@@ -206,19 +199,45 @@ def scrape_minifig_info(driver, page_numbers):
                 if direct_text:
                     notes = direct_text.strip()
                 else:
-                    notes = "Add Notes"
+                    notes = ""
             else:
                 notes = "Error parsing notes."
 
-            minifig_info.append([name, identifier, ip, category, release_year, condition, price, quantity, notes])
+            minifig_info.append([name, identifier, theme, subtheme, release_year, condition, price, quantity, notes])
 
     return minifig_info
 
 def write_to_csv(minifig_info):
     with open('scraped_minifig_info.csv', 'w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['name', 'id', 'ip', 'category', 'release', 'condition', 'price', 'quantity', 'notes'])
+        writer.writerow(['name', 'id', 'theme', 'subtheme', 'release', 'condition', 'price', 'quantity', 'notes'])
         writer.writerows(minifig_info)
+
+# function to populate a chosen google sheet
+# need to really go through and relearn this code; I just copied it from a older project I made
+# also need to relearn how the credentials work so I can add it in the github documentation
+def fill_google_sheet(minifig_info):
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name('c:/Users/tdjon/Projects/BrickLink/Minifig_Sheet_Fill/logical-veld-439501-v7-8119ef621faf.json', scope)
+    client = gspread.authorize(creds)
+
+    sheet = client.open("Minifigure Collection").sheet1
+
+    range_to_clear = "A2:I1000"
+
+    sheet.batch_clear([range_to_clear])
+
+    start_row = 2
+
+    cell_range = f'A{start_row}:I{start_row + len(minifig_info) - 1}'
+    cell_list = sheet.range(cell_range)
+
+    flat_data = [item for sublist in minifig_info for item in sublist]
+
+    for i, cell in enumerate(cell_list):
+        cell.value = flat_data[i]
+
+    sheet.update_cells(cell_list)
 
 def main():
     start = time.perf_counter()
@@ -245,7 +264,10 @@ def main():
     driver.quit()
 
     # works but need to fix it so that names with inner quotes don't keep the added outer quotes
-    write_to_csv(minifig_info)
+    #write_to_csv(minifig_info)
+
+    # populate google sheet
+    fill_google_sheet(minifig_info)
 
     end = time.perf_counter()
 
