@@ -15,6 +15,7 @@
 # On My Collection page, there is a box that lets you pick what page to go to
 # Luckily, that portion includes the total amount of pages "'jump to:'____ / <last_page_number>"
 
+# html parsing and browser surfing
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -22,42 +23,51 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import re
 
+# using .env 
 from dotenv import load_dotenv
 import os
 
+# time
 import time
 
+# Google Sheets and CSV handling
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import csv
 
+start = time.perf_counter()
 
-# function to scrape price and release year from minifig specific pages
-# NEED to update it to pick the price based on condition
-# currently it defaults to the avg used current price
+# function to scrape price (based on listed condition) and release year from minifig specific pages
 def scrape_release_and_price(driver, identifier, condition):
+
+    # load "Price Guide" page using the minifigs item number
     driver.get(f"https://www.bricklink.com/v2/catalog/catalogitem.page?M={identifier}#T=P")
 
+    # halt program until presence of price tables is detected, otherwise set variables as empty
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CLASS_NAME, 'pcipgSummaryTable'))
         )
     except Exception as e:
         print(f"Timed out waiting for tables on {identifier}: {e}")
-        return "N/A", "N/A"
+        return "", ""
 
+    # get page data
     soup = BeautifulSoup(driver.page_source, 'html.parser')
 
     # scrape price
+    # store tables with class the class 'pcipgSummaryTable' (since all tables share the same class)
     tables = soup.find_all('table', class_='pcipgSummaryTable')
     if len(tables) < 4:
         print(f"Expected at least 4 tables for identifier {identifier}, but found {len(tables)}")
-        price = "N/A"
+        price = ""
     else:
+        # choose which table based on condition
         if str(condition).lower() == 'used':
             table = tables[3]
         elif str(condition).lower() == 'new':
             table = tables[2]
+        # get all the rows from selected table
         rows = table.find('tbody').find_all('tr')
         if len(rows) > 3:
             price_cell = rows[3].find_all('td')[1]
@@ -65,64 +75,71 @@ def scrape_release_and_price(driver, identifier, condition):
             try:
                 price = f"{float(price_text.split('$')[1]):.2f}"
             except (IndexError, ValueError):
-                price = "N/A"
+                price = ""
         else:
-            price = "N/A"
+            price = ""
 
     # scrape release year
-    year_elem = soup.find(id='yearReleasedSec')
-    release_year = year_elem.text.strip() if year_elem else "N/A"
+    year_element = soup.find(id='yearReleasedSec')
+    release_year = year_element.text.strip()
+    if year_element is None:
+        release_year = ""
 
     return price, release_year
 
-
-load_dotenv()
-user, passwd = os.getenv("UNAME"), os.getenv("PASSWD")
-
+# select web driver and set to 'headless' so it doesn't display while it runs (though it is super sick to see when not headless)
 options = webdriver.ChromeOptions()
-options.add_argument('--headless')
+#options.add_argument('--headless')
 driver = webdriver.Chrome(options=options)
 
+# load login page
 url = "https://store.bricklink.com/v2/login.page?menu=Home&logInTo=https%3A%2F%2Fstore.bricklink.com%2Fv2%2Fglobalcart.page"
 driver.get(url)
 
-
+# wait for cookie popup and destroy that shit (using JS because it didn't work the other way)
 cookie_btn = WebDriverWait(driver, 10).until(
     EC.presence_of_element_located((By.XPATH, "//button[text()='Just necessary']"))
 )
 driver.execute_script("arguments[0].click();", cookie_btn)
 
+# load data stored in .env file
+load_dotenv()
+user, passwd = os.getenv("UNAME"), os.getenv("PASSWD")
+
+# fill username and password fields
 username_field = driver.find_element(By.ID, 'frmUsername')
 password_field = driver.find_element(By.ID, 'frmPassword')
 driver.find_element(By.ID, 'blbtnLogin')
 username_field.send_keys(user)
 password_field.send_keys(passwd)
 
+# click login button
 driver.find_element(By.ID, 'blbtnLogin').click()
 
-time.sleep(1)
+time.sleep(0.5)
 
+# load the first My Collection page initially to retrieve number of total pages
 driver.get("https://www.bricklink.com/v3/myCollection/main.page?q=&itemType=M&page=1")
-
 soup = BeautifulSoup(driver.page_source, 'html.parser')
 
-time.sleep(1)
+time.sleep(0.5)
 
 # scrape total number of pages for looping
 pagination_jump = soup.find('label', class_='pagination__jump')
+
+# setting page_amount to 1 as a default means if the pagination jump is missing, it only page one gets added to the list of pages to scrape
 page_amount = 1
-
 page_numbers = []
-
 if pagination_jump:
     pagination_jump = pagination_jump.text.strip()
     page_amount = int(pagination_jump.split('/')[1].strip())
-
 for x in range(1, page_amount + 1):
     page_numbers.append(x)
 
+# this houses all of the scraped info; each item is a list
 minifig_info = []
 
+# loop through all pages containing minifigs in My Collection
 for page in page_numbers:
     driver.get(f"https://www.bricklink.com/v3/myCollection/main.page?q=&itemType=M&page={str(page)}")
 
@@ -130,16 +147,22 @@ for page in page_numbers:
         EC.presence_of_element_located((By.ID, 'listItemView-0'))
     )  
 
+    # get data for each visited page
     minifig_soup = BeautifulSoup(driver.page_source, 'html.parser')  
 
+    # get any data under elements that contain the id listItemView-XX (e.g., listItemView-0, listItemView-23)
     list_items = minifig_soup.find_all(id=re.compile('^listItemView-\d+$'))
     for item in list_items:
         item_id = item.get_attribute_list('id')
+
+        # get data for each listViewItem-XX id
         list_item = minifig_soup.find(id=str(item_id[0]))
 
         # scrape minifig name
         name = list_item.find('div', class_='text--bold l-cursor-pointer')
         name = name.text.strip()
+        if name is None:
+            name = ""
 
         # scrape intellectual property minifig (e.g., Ninjago, Indiana Jones, etc)
         # scrape subcategory of IP (e.g., NINJAGO: Rise of the Snakes, Star Wars: Star Wars Episode 1, Super Heroes: Batman II)
@@ -154,13 +177,21 @@ for page in page_numbers:
         # scrape BrickLink item number (e.g., njo0047, sw0002, sh0041)
         identifier = list_item.find('div', class_='personal-inventory__list-item-list-cell--item-no text--break-word l-cursor-pointer')
         identifier = identifier.text.strip()
+        if identifier is None:
+            identifier = ""
 
         # scrape chosen condition of minifig (used or new)
         condition = list_item.find('div', class_='personal-inventory__list-item-list-cell--cond')
         condition = condition.text.strip()
+        if condition is None:
+            condition = ""
 
         # scrape price and release year from a different page using a function
         price, release_year = scrape_release_and_price(driver, identifier, condition)
+        if price is None:
+            price = ""
+        if release_year is None:
+            release_year = ""
 
         # scrape quantity of minifigs in collection
         qty_container = list_item.find('div', class_='personal-inventory__list-item-list-cell--qty')
@@ -170,19 +201,34 @@ for page in page_numbers:
                 quantity = input_tag['value']
             else:
                 print("Input tag not found or missing value attribute.")
+                quantity = ""
         else:
             print("Quantity container not found.")
+            quantity = ""
 
         # scrape and transfer over any added notes
         notes_div = list_item.find('div', class_='personal-inventory__cell--note l-margin-top--sm personal-inventory__note-field')
         if notes_div:
             direct_text = notes_div.find(string=True, recursive=False)
-            notes = direct_text.strip() if direct_text else "Add Notes"
+            if direct_text:
+                notes = direct_text.strip()
+            else:
+                notes = "Add Notes"
         else:
-            notes = "No notes found"
+            notes = "Error parsing notes."
 
         minifig_info.append([name, identifier, ip, category, release_year, condition, price, quantity, notes])
 
 time.sleep(10)
+
+
+#for x in minifig_info:
+#    print(x)
            
 driver.quit()
+
+end = time.perf_counter()
+
+# need to figure out if I can reduce runtime
+# runs on my collection (65 entries) took: run1: 68.67s, run2: 78.40s, run3: 77.50s, run4: 75.12s, run5: 72.91s
+print(f"Runtime: {end - start}s")
