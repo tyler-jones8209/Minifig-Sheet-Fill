@@ -8,3 +8,13 @@ My personal collection (that I've been building for the past three years, and is
 ![MinifigSheet](SheetSS.png)
 
 Regarding the Google Sheet worksheet, the only thing I manually changed/configured was the header row (Name, Item Number, etc) and other specific formatting options. Other than that, everything was created using the script.
+
+# How to Use
+Here is a comprehensive guide to using this script. As long as BrickLink doesn't change or remove sections of the 'My Collection' page the script should work. 
+
+## Prerequisites
+### BrickLink Account
+The meat of this script relies on scarping data from a BrickLink account, so you will need one. Additionally, you will need at leat one minifigure in your 'My Collection' page. 
+
+### Google Account
+Similarly to BrickLink, the other half of this project relies on you having a Google account and a usable Google Sheet worksheet. Before the script can access your worksheet
