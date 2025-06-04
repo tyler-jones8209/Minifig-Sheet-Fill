@@ -11,7 +11,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
+import sys
 import re
 
 # using .env 
@@ -20,6 +22,9 @@ import os
 
 # time
 import time
+
+# progress bars
+from tqdm import tqdm
 
 # Google Sheets and CSV handling
 import gspread
@@ -61,11 +66,12 @@ def get_total_pages(driver):
 
     # setting page_amount to 1 as a default means if the pagination jump is missing, it only page one gets added to the list of pages to scrape
     page_amount = 1
-
     page_numbers = []
+
     if pagination_jump:
         pagination_jump = pagination_jump.text.strip()
         page_amount = int(pagination_jump.split('/')[1].strip())
+    
     for x in range(1, page_amount + 1):
         page_numbers.append(x)
 
@@ -257,40 +263,57 @@ def fill_google_sheet(minifig_info):
     sheet.update_cells(cell_list)
 
 def main():
-    start = time.perf_counter()
 
-    # select web driver and set to 'headless' so it doesn't display while it runs (though it is super sick to see when not headless)
-    options = webdriver.ChromeOptions()
-    #options.add_argument('--headless')
-    driver = webdriver.Chrome(options=options)
+    with tqdm(total=5, desc="Starting Script") as pbar:
 
-    # load data stored in .env file
-    load_dotenv()
-    user, passwd = os.getenv("UNAME"), os.getenv("PASSWD")
+        start = time.perf_counter()
+        # select web driver and set to 'headless' so it doesn't display while it runs (though it is super sick to see when not headless)
+        options = webdriver.ChromeOptions()
 
-    login(driver=driver, username=user, password=passwd)
+        # trying to suppress DevTools log but no luck
+        options.add_argument('--headless=new')
+        options.add_argument('--log-level=3')
+        options.add_argument('--disable-logging')
+        options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+        options.add_experimental_option('useAutomationExtension', False)
+        driver = webdriver.Chrome(options=options)
+        sys.stderr = open(os.devnull, 'w')
 
-    time.sleep(0.5)
-    
-    page_numbers = get_total_pages(driver=driver)
+        pbar.update(1), pbar.set_description("Driver Started")
 
-    minifig_info = scrape_minifig_info(driver=driver, page_numbers=page_numbers)
+        # load data stored in .env file
+        load_dotenv()
+        user, passwd = os.getenv("UNAME"), os.getenv("PASSWD")
 
-    time.sleep(10)
-            
-    driver.quit()
+        login(driver=driver, username=user, password=passwd)
 
-    # works but need to fix it so that names with inner quotes don't keep the added outer quotes
-    #write_to_csv(minifig_info)
+        pbar.update(1), pbar.set_description("Logged In")
 
-    # populate google sheet
-    fill_google_sheet(minifig_info)
+        time.sleep(0.5)
+        
+        page_numbers = get_total_pages(driver=driver)
 
-    end = time.perf_counter()
+        pbar.update(1), pbar.set_description("Pages Collected")
 
-    # need to figure out if I can reduce runtime
-    # runs on my collection (65 entries) took: run1: 68.67s, run2: 78.40s, run3: 77.50s, run4: 75.12s, run5: 72.91s
-    print(f"Runtime: {end - start}s")
+        minifig_info = scrape_minifig_info(driver=driver, page_numbers=page_numbers)
+
+        pbar.update(1), pbar.set_description("Minifig Info Collected")
+
+        #time.sleep(10)
+                
+        driver.quit()
+
+        # works but need to fix it so that names with inner quotes don't keep the added outer quotes
+        #write_to_csv(minifig_info)
+
+        # populate google sheet
+        fill_google_sheet(minifig_info)
+
+        pbar.update(1), pbar.set_description("Sheet Populated")
+
+        end = time.perf_counter()
+
+        #print(f"Runtime: {round(end - start, 2)}")
 
 if __name__ == '__main__':
     main()
