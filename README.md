@@ -1,3 +1,6 @@
+# NEEDS UPDATED
+After the merger of BrickLink/LEGO, this script no longer works. 
+
 # What is This?
 This is a Python script that parses through an individual's 'My Collection' page on BrickLink and logs minifigure information in a seperate Google Sheet worksheet. The distinction between my script and just using 'My Collection' is that my script includes pricing information based on the listed condition of the minifigures. It's also nice to have multiple data storage options (Google Sheets).
 
