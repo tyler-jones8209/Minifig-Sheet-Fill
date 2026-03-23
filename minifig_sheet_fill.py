@@ -38,20 +38,31 @@ def login(driver, username, password):
     driver.get(url)
 
     # wait for cookie popup and destroy that shit (using JS because it didn't work the other way)
-    cookie_btn = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.XPATH, "//button[text()='Just necessary']"))
-    )
-    driver.execute_script("arguments[0].click();", cookie_btn)
+    #cookie_btn = WebDriverWait(driver, 10).until(
+    #    EC.presence_of_element_located((By.XPATH, "//button[text()='Just necessary']"))
+    #)
+    #driver.execute_script("arguments[0].click();", cookie_btn)
 
-    # fill username and password fields
-    username_field = driver.find_element(By.ID, 'frmUsername')
-    password_field = driver.find_element(By.ID, 'frmPassword')
-    driver.find_element(By.ID, 'blbtnLogin')
+    # find and fill username field
+    username_field = driver.find_element(By.ID, 'username')
     username_field.send_keys(username)
+
+    # make sure 'Continue' button is available to unlock password prompt
+    continue_btn = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//button[text()='Continue']"))
+    )
+    driver.execute_script("arguments[0].click();", continue_btn)
+
+    # find and fill password field
+    password_field = driver.find_element(By.ID, 'password')
     password_field.send_keys(password)
 
-    # click login button
-    driver.find_element(By.ID, 'blbtnLogin').click()
+    # make sure 'Sign up' button is available and press after username and passwords fields are populated
+    sign_in_btn = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//button[text()='Sign in']"))
+    )
+    driver.execute_script("arguments[0].click();", sign_in_btn)
+
 
 # get the total number of pages listed in My Collection
 def get_total_pages(driver):
@@ -144,7 +155,7 @@ def scrape_minifig_info(driver, page_numbers):
         minifig_soup = BeautifulSoup(driver.page_source, 'html.parser')  
 
         # get any data under elements that contain the id listItemView-XX (e.g., listItemView-0, listItemView-23)
-        list_items = minifig_soup.find_all(id=re.compile('^listItemView-\d+$'))
+        list_items = minifig_soup.find_all(id=re.compile(r'^listItemView-\d+$'))
         for item in list_items:
             item_id = item.get_attribute_list('id')
 
@@ -271,7 +282,7 @@ def main():
         options = webdriver.ChromeOptions()
 
         # trying to suppress DevTools log but no luck
-        options.add_argument('--headless=new')
+        options.add_argument('--headless')
         options.add_argument('--log-level=3')
         options.add_argument('--disable-logging')
         options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
